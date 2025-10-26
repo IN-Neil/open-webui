@@ -46,6 +46,18 @@
 	let videoInputDevices = [];
 	let selectedVideoInputDeviceId = null;
 
+	const CHUNK_MS = 12000;
+	const MAX_CONCURRENT_UPLOADS = 2;
+	const MAX_BACKLOG = 6;
+	const MIN_BLOB_BYTES = 8192;
+	let chunkIntervalId = null;
+	let transcriptBuffer = [];
+	let uploadQueue = [];
+	let inFlight = 0;
+	let stopping = false;
+	let warnedDrop = false;
+	const chunkedMode = ($settings?.audio?.call?.chunked ?? true);
+
 	const getVideoInputDevices = async () => {
 		const devices = await navigator.mediaDevices.enumerateDevices();
 		videoInputDevices = devices.filter((device) => device.kind === 'videoinput');
@@ -224,31 +236,66 @@
 			if (!audioStream) {
 				audioStream = await navigator.mediaDevices.getUserMedia({
 					audio: {
-						echoCancellation: true,
-						noiseSuppression: true,
-						autoGainControl: true
+						channelCount: 1,
+						echoCancellation: false,
+						noiseSuppression: false,
+						autoGainControl: false
 					}
 				});
 			}
-			mediaRecorder = new MediaRecorder(audioStream);
+
+			const mimeTypes = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'];
+			const mimeType = mimeTypes.find((t) => MediaRecorder.isTypeSupported(t));
+			mediaRecorder = mimeType ? new MediaRecorder(audioStream, { mimeType }) : new MediaRecorder(audioStream);
 
 			mediaRecorder.onstart = () => {
 				console.log('Recording started');
-				audioChunks = [];
+				if (chunkIntervalId) clearInterval(chunkIntervalId);
+				chunkIntervalId = setInterval(() => {
+					if (!stopping) {
+						if (uploadQueue.length + inFlight > MAX_BACKLOG) {
+							if (!warnedDrop) {
+								console.log('Backlog high, skipping requestData tick');
+								warnedDrop = true;
+							}
+							return;
+						}
+						try {
+							mediaRecorder.requestData();
+						} catch (e) {
+							console.error(e);
+						}
+					}
+				}, CHUNK_MS);
 			};
 
 			mediaRecorder.ondataavailable = (event) => {
-				if (hasStartedSpeaking) {
-					audioChunks.push(event.data);
+				const blob = event.data;
+				if (!blob || blob.size < MIN_BLOB_BYTES) {
+					return;
 				}
+				if (uploadQueue.length + inFlight > MAX_BACKLOG) {
+					if (!warnedDrop) {
+						console.log('Dropping chunk due to backlog');
+						warnedDrop = true;
+					}
+					return;
+				}
+				uploadQueue.push(blob);
+				processQueue();
 			};
 
 			mediaRecorder.onstop = (e) => {
 				console.log('Recording stopped', audioStream, e);
-				stopRecordingCallback();
 			};
 
 			analyseAudio(audioStream);
+			try {
+				mediaRecorder.start();
+			} catch (error) {
+				console.error('Error starting recording:', error);
+				toast.error($i18n.t('Error starting recording.'));
+			}
 		}
 	};
 
@@ -290,77 +337,51 @@
 
 		const bufferLength = analyser.frequencyBinCount;
 
-		const domainData = new Uint8Array(bufferLength);
-		const timeDomainData = new Uint8Array(analyser.fftSize);
+const domainData = new Uint8Array(bufferLength);
+const timeDomainData = new Uint8Array(analyser.fftSize);
 
-		let lastSoundTime = Date.now();
-		hasStartedSpeaking = false;
+let lastSoundTime = Date.now();
+hasStartedSpeaking = false;
 
-		console.log('🔊 Sound detection started', lastSoundTime, hasStartedSpeaking);
+console.log(' Sound detection started', lastSoundTime, hasStartedSpeaking);
 
-		const detectSound = () => {
-			const processFrame = () => {
-				if (!mediaRecorder || !$showCallOverlay) {
-					return;
-				}
+const detectSound = () => {
+const processFrame = () => {
+if (!mediaRecorder || !$showCallOverlay) {
+return;
+}
 
-				if (assistantSpeaking && !($settings?.voiceInterruption ?? false)) {
-					// Mute the audio if the assistant is speaking
-					analyser.maxDecibels = 0;
-					analyser.minDecibels = -1;
-				} else {
-					analyser.minDecibels = MIN_DECIBELS;
-					analyser.maxDecibels = -30;
-				}
+if (assistantSpeaking && !($settings?.voiceInterruption ?? false)) {
+analyser.maxDecibels = 0;
+analyser.minDecibels = -1;
+} else {
+analyser.minDecibels = MIN_DECIBELS;
+analyser.maxDecibels = -30;
+}
 
-				analyser.getByteTimeDomainData(timeDomainData);
-				analyser.getByteFrequencyData(domainData);
+analyser.getByteTimeDomainData(timeDomainData);
+analyser.getByteFrequencyData(domainData);
 
-				// Calculate RMS level from time domain data
-				rmsLevel = calculateRMS(timeDomainData);
+// Calculate RMS level from time domain data for UI
+rmsLevel = calculateRMS(timeDomainData);
 
-				// Check if initial speech/noise has started
-				const hasSound = domainData.some((value) => value > 0);
-				if (hasSound) {
-					// BIG RED TEXT
-					console.log('%c%s', 'color: red; font-size: 20px;', '🔊 Sound detected');
-					if (mediaRecorder && mediaRecorder.state !== 'recording') {
-						mediaRecorder.start();
-					}
+const hasSound = domainData.some((value) => value > 0);
+if (hasSound) {
+if (!hasStartedSpeaking) {
+hasStartedSpeaking = true;
+stopAllAudio();
+}
+lastSoundTime = Date.now();
+}
 
-					if (!hasStartedSpeaking) {
-						hasStartedSpeaking = true;
-						stopAllAudio();
-					}
+window.requestAnimationFrame(processFrame);
+};
 
-					lastSoundTime = Date.now();
-				}
+window.requestAnimationFrame(processFrame);
+};
 
-				// Start silence detection only after initial speech/noise has been detected
-				if (hasStartedSpeaking) {
-					if (Date.now() - lastSoundTime > 2000) {
-						confirmed = true;
-
-						if (mediaRecorder) {
-							console.log('%c%s', 'color: red; font-size: 20px;', '🔇 Silence detected');
-							mediaRecorder.stop();
-							return;
-						}
-					}
-				}
-
-				window.requestAnimationFrame(processFrame);
-			};
-
-			window.requestAnimationFrame(processFrame);
-		};
-
-		detectSound();
-	};
-
-	let finishedMessages = {};
-	let currentMessageId = null;
-	let currentUtterance = null;
+detectSound();
+};
 
 	const speakSpeechSynthesisHandler = (content) => {
 		if ($showCallOverlay) {
@@ -446,6 +467,107 @@
 			audioElement.muted = true;
 			audioElement.pause();
 			audioElement.currentTime = 0;
+		}
+	};
+
+	// Upload queue and finalization for chunked mode
+	const processQueue = () => {
+		while (inFlight < MAX_CONCURRENT_UPLOADS && uploadQueue.length > 0) {
+			const blob = uploadQueue.shift();
+			inFlight++;
+			const send = async (b: Blob, attempt = 1) => {
+				try {
+					let type = b.type || mediaRecorder?.mimeType || 'audio/webm';
+					let ext = 'webm';
+					if (type.startsWith('audio/')) {
+						ext = type.split('/')[1].split(';')[0] || 'webm';
+					}
+					const file = blobToFile(b, `chunk-${Date.now()}.${ext}`);
+					const res = await transcribeAudio(
+						localStorage.token,
+						file,
+						$settings?.audio?.stt?.language
+					).catch((error) => {
+						return Promise.reject(error);
+					});
+					if (res && res.text) {
+						transcriptBuffer.push(res.text);
+					}
+				} catch (err) {
+					if (attempt < 3) {
+						const delay = Math.pow(2, attempt) * 200;
+						setTimeout(() => send(blob, attempt + 1), delay);
+						return;
+					} else {
+						if (!warnedDrop) {
+							toast.error(`${err}`);
+							warnedDrop = true;
+						}
+					}
+				} finally {
+					inFlight--;
+					processQueue();
+				}
+			};
+			send(blob);
+		}
+	};
+
+	const waitForUploadsToFinish = async () => {
+		return new Promise<void>((resolve) => {
+			const check = () => {
+				if (uploadQueue.length === 0 && inFlight === 0) {
+					resolve();
+				} else {
+					setTimeout(check, 100);
+				}
+			};
+			check();
+		});
+	};
+
+	const finalizeCall = async () => {
+		if (stopping) return;
+		stopping = true;
+		try {
+			if (chunkIntervalId) {
+				clearInterval(chunkIntervalId);
+				chunkIntervalId = null;
+			}
+			if (mediaRecorder) {
+				try {
+					if (mediaRecorder.state === 'recording') {
+						mediaRecorder.requestData();
+					}
+				} catch (e) {
+					console.error(e);
+				}
+				try {
+					mediaRecorder.stop();
+				} catch (e) {
+					console.log(e);
+				}
+			}
+			await waitForUploadsToFinish();
+			const finalTranscript = (transcriptBuffer.join(' ') || '').trim();
+			if (finalTranscript.length > 0) {
+				const _responses = await submitPrompt(finalTranscript, { _raw: true });
+				console.log(_responses);
+			}
+		} finally {
+			if (wakeLock) {
+				try {
+					await wakeLock.release();
+				} catch (e) {
+					console.log(e);
+				}
+				wakeLock = null;
+			}
+			if (audioStream) {
+				const tracks = audioStream.getTracks();
+				tracks.forEach((track) => track.stop());
+				audioStream = null;
+			}
 		}
 	};
 
@@ -656,6 +778,7 @@
 		return async () => {
 			await stopAllAudio();
 
+			await finalizeCall();
 			stopAudioStream();
 
 			eventTarget.removeEventListener('chat:start', chatStartHandler);
@@ -667,14 +790,14 @@
 
 			await stopAllAudio();
 
-			await stopRecordingCallback(false);
+			// finalizeCall already called above; ensure camera stops
 			await stopCamera();
 		};
 	});
 
 	onDestroy(async () => {
 		await stopAllAudio();
-		await stopRecordingCallback(false);
+		await finalizeCall();
 		await stopCamera();
 
 		await stopAudioStream();
@@ -974,6 +1097,7 @@
 				<button
 					class=" p-3 rounded-full bg-gray-50 dark:bg-gray-900"
 					on:click={async () => {
+						await finalizeCall();
 						await stopAudioStream();
 						await stopVideoStream();
 
