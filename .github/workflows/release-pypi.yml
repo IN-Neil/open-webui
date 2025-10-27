@@ -8,6 +8,7 @@ on:
 
 jobs:
   release:
+    if: github.repository_owner == 'open-webui'
     runs-on: ubuntu-latest
     environment:
       name: pypi
