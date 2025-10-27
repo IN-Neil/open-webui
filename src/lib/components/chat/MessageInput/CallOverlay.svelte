@@ -42,7 +42,6 @@
 	let mediaRecorder;
 	let audioStream = null;
 	let audioChunks = [];
-	let recorderMimeType = '';
 
 	let videoInputDevices = [];
 	let selectedVideoInputDeviceId = null;
@@ -77,24 +76,6 @@
 		if (selectedVideoInputDeviceId === null && videoInputDevices.length > 0) {
 			selectedVideoInputDeviceId = videoInputDevices[0].deviceId;
 		}
-	};
-
-	const chooseMimeType = () => {
-		const candidates = [
-			'audio/webm;codecs=opus',
-			'audio/webm',
-			'audio/mp4',
-			'audio/ogg',
-			'audio/wav'
-		];
-		for (const t of candidates) {
-			try {
-				if (typeof MediaRecorder !== 'undefined' && 'isTypeSupported' in MediaRecorder && MediaRecorder.isTypeSupported(t)) {
-					return t;
-				}
-			} catch (e) {}
-		}
-		return '';
 	};
 
 	const startCamera = async () => {
@@ -182,17 +163,7 @@
 		// Create a blob from the audio chunks
 
 		await tick();
-		const mime = audioBlob?.type || 'audio/webm';
-		const ext = mime.includes('webm')
-			? 'webm'
-			: mime.includes('mp4')
-			? 'mp4'
-			: mime.includes('ogg')
-			? 'ogg'
-			: mime.includes('wav')
-			? 'wav'
-			: 'webm';
-		const file = blobToFile(audioBlob, `recording.${ext}`);
+		const file = blobToFile(audioBlob, 'recording.wav');
 
 		const res = await transcribeAudio(
 			localStorage.token,
@@ -242,8 +213,7 @@
 					];
 				}
 
-				const blobType = recorderMimeType || (_audioChunks?.[0]?.type || 'audio/webm');
-				const audioBlob = new Blob(_audioChunks, { type: blobType });
+				const audioBlob = new Blob(_audioChunks, { type: 'audio/wav' });
 				await transcribeHandler(audioBlob);
 
 				confirmed = false;
@@ -273,13 +243,10 @@
 					}
 				});
 			}
-			recorderMimeType = chooseMimeType();
-			if (recorderMimeType) {
-				mediaRecorder = new MediaRecorder(audioStream, { mimeType: recorderMimeType });
-			} else {
-				mediaRecorder = new MediaRecorder(audioStream);
-				recorderMimeType = mediaRecorder.mimeType || '';
-			}
+
+			const mimeTypes = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'];
+			const mimeType = mimeTypes.find((t) => MediaRecorder.isTypeSupported(t));
+			mediaRecorder = mimeType ? new MediaRecorder(audioStream, { mimeType }) : new MediaRecorder(audioStream);
 
 			mediaRecorder.onstart = () => {
 				console.log('Recording started');
@@ -482,14 +449,12 @@ detectSound();
 		}
 	};
 
-	const stopAllAudio = async (force = false) => {
+	const stopAllAudio = async () => {
 		assistantSpeaking = false;
 		interrupted = true;
 
 		if (chatStreaming) {
-			if (($settings?.voiceInterruption ?? false) || force) {
-				stopResponse();
-			}
+			stopResponse();
 		}
 
 		if (currentUtterance) {
@@ -855,7 +820,7 @@ detectSound();
 				class="flex justify-center items-center w-full h-20 min-h-20"
 				on:click={() => {
 					if (assistantSpeaking) {
-						stopAllAudio(true);
+						stopAllAudio();
 					}
 				}}
 			>
