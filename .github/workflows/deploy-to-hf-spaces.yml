@@ -10,6 +10,7 @@ on:
 jobs:
   check-secret:
     runs-on: ubuntu-latest
+    if: github.repository_owner == 'open-webui'
     outputs:
       token-set: ${{ steps.check-key.outputs.defined }}
     steps:
@@ -21,6 +22,7 @@ jobs:
 
   deploy:
     runs-on: ubuntu-latest
+    if: github.repository_owner == 'open-webui'
     needs: [check-secret]
     if: needs.check-secret.outputs.token-set == 'true'
     env:
