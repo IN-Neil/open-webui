@@ -833,7 +833,18 @@ def transcribe(request: Request, file_path: str, metadata: Optional[dict] = None
     log.info(f"transcribe: {file_path} {metadata}")
 
     if is_audio_conversion_required(file_path):
-        file_path = convert_audio_to_mp3(file_path)
+        converted_path = convert_audio_to_mp3(file_path)
+        if converted_path and os.path.isfile(converted_path):
+            file_path = converted_path
+        else:
+            log.error("Audio conversion failed or produced no file, continuing with original")
+
+    # Validate that we have a real file before attempting compression/splitting
+    if not (file_path and os.path.isfile(file_path)):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid audio file",
+        )
 
     try:
         file_path = compress_audio(file_path)
