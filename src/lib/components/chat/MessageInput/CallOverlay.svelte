@@ -58,6 +58,9 @@
 	let warnedDrop = false;
 	const chunkedMode = ($settings?.audio?.call?.chunked ?? true);
 	const isIPhone = typeof navigator !== 'undefined' && /iPhone/i.test(navigator.userAgent || '');
+	const SILENCE_MS = 3000;
+	let silenceFinalizeTriggered = false;
+	let analyserStarted = false;
 
 	const getVideoInputDevices = async () => {
 		const devices = await navigator.mediaDevices.enumerateDevices();
@@ -254,7 +257,6 @@
 			mediaRecorder.onstart = () => {
 				console.log('Recording started');
 				if (chunkIntervalId) clearInterval(chunkIntervalId);
-				// On iPhone, do not set up periodic requestData(); rely on final onstop blob
 				if (!isIPhone) {
 					chunkIntervalId = setInterval(() => {
 						if (!stopping) {
@@ -280,7 +282,6 @@
 				if (!blob || blob.size < MIN_BLOB_BYTES) {
 					return;
 				}
-				// On iPhone, do not perform per-chunk STT uploads; accumulate locally for one final upload at hang-up
 				if (isIPhone) {
 					audioChunks.push(blob);
 					return;
@@ -300,7 +301,10 @@
 				console.log('Recording stopped', audioStream, e);
 			};
 
-			analyseAudio(audioStream);
+			if (!analyserStarted) {
+				analyseAudio(audioStream);
+				analyserStarted = true;
+			}
 			try {
 				mediaRecorder.start();
 			} catch (error) {
@@ -376,13 +380,30 @@
 				// Calculate RMS level from time domain data for UI
 				rmsLevel = calculateRMS(timeDomainData);
 
-				const hasSound = domainData.some((value) => value > 0);
-				if (hasSound) {
+				const voiceActive = rmsLevel > 0.03;
+				if (voiceActive) {
 					if (!hasStartedSpeaking) {
 						hasStartedSpeaking = true;
-						stopAllAudio();
+						if ($settings?.voiceInterruption ?? false) {
+							stopAllAudio();
+						}
 					}
 					lastSoundTime = Date.now();
+				}
+
+				const now = Date.now();
+				if (
+					hasStartedSpeaking &&
+					!assistantSpeaking &&
+					!loading &&
+					!stopping &&
+					!silenceFinalizeTriggered &&
+					now - lastSoundTime > SILENCE_MS
+				) {
+					silenceFinalizeTriggered = true;
+					finalizeCall().finally(() => {
+						silenceFinalizeTriggered = false;
+					});
 				}
 
 				window.requestAnimationFrame(processFrame);
@@ -540,6 +561,8 @@
 	const finalizeCall = async () => {
 		if (stopping) return;
 		stopping = true;
+		loading = true;
+		emoji = null;
 		try {
 			if (chunkIntervalId) {
 				clearInterval(chunkIntervalId);
@@ -560,8 +583,7 @@
 				}
 			}
 			if (isIPhone) {
-				// Give a brief moment for the last ondataavailable to fire
-				await new Promise((r) => setTimeout(r, 150));
+				await new Promise((r) => setTimeout(r, 400));
 				try {
 					const type = mediaRecorder?.mimeType || 'audio/mp4';
 					let ext = 'mp4';
@@ -592,8 +614,11 @@
 					const _responses = await submitPrompt(finalTranscript, { _raw: true });
 					console.log(_responses);
 				}
+				transcriptBuffer = [];
 			}
 		} finally {
+			loading = false;
+			analyserStarted = false;
 			if (wakeLock) {
 				try {
 					await wakeLock.release();
@@ -765,9 +790,6 @@
 				fetchAudio(content);
 			} catch (error) {
 				console.error('Failed to fetch or play audio:', error);
-			}
-		}
-	};
 
 	const chatFinishHandler = async (e) => {
 		const { id, content } = e.detail;
@@ -775,6 +797,17 @@
 		finishedMessages[id] = true;
 
 		chatStreaming = false;
+		// After assistant finishes speaking (audio), resume listening automatically
+		const resume = () => {
+			if (!$showCallOverlay) return;
+			if (!assistantSpeaking && !audioStream) {
+				stopping = false;
+				startRecording();
+			} else {
+				setTimeout(resume, 300);
+			}
+		};
+		setTimeout(resume, 300);
 	};
 
 	onMount(async () => {
