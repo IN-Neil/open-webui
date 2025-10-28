@@ -57,6 +57,7 @@
 	let stopping = false;
 	let warnedDrop = false;
 	const chunkedMode = ($settings?.audio?.call?.chunked ?? true);
+	const isIPhone = typeof navigator !== 'undefined' && /iPhone/i.test(navigator.userAgent || '');
 
 	const getVideoInputDevices = async () => {
 		const devices = await navigator.mediaDevices.enumerateDevices();
@@ -244,34 +245,44 @@
 				});
 			}
 
-			const mimeTypes = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'];
+			const mimeTypes = isIPhone
+				? ['audio/mp4', 'audio/webm;codecs=opus', 'audio/webm']
+				: ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'];
 			const mimeType = mimeTypes.find((t) => MediaRecorder.isTypeSupported(t));
 			mediaRecorder = mimeType ? new MediaRecorder(audioStream, { mimeType }) : new MediaRecorder(audioStream);
 
 			mediaRecorder.onstart = () => {
 				console.log('Recording started');
 				if (chunkIntervalId) clearInterval(chunkIntervalId);
-				chunkIntervalId = setInterval(() => {
-					if (!stopping) {
-						if (uploadQueue.length + inFlight > MAX_BACKLOG) {
-							if (!warnedDrop) {
-								console.log('Backlog high, skipping requestData tick');
-								warnedDrop = true;
+				// On iPhone, do not set up periodic requestData(); rely on final onstop blob
+				if (!isIPhone) {
+					chunkIntervalId = setInterval(() => {
+						if (!stopping) {
+							if (uploadQueue.length + inFlight > MAX_BACKLOG) {
+								if (!warnedDrop) {
+									console.log('Backlog high, skipping requestData tick');
+									warnedDrop = true;
+								}
+								return;
 							}
-							return;
+							try {
+								mediaRecorder.requestData();
+							} catch (e) {
+								console.error(e);
+							}
 						}
-						try {
-							mediaRecorder.requestData();
-						} catch (e) {
-							console.error(e);
-						}
-					}
-				}, CHUNK_MS);
+					}, CHUNK_MS);
+				}
 			};
 
 			mediaRecorder.ondataavailable = (event) => {
 				const blob = event.data;
 				if (!blob || blob.size < MIN_BLOB_BYTES) {
+					return;
+				}
+				// On iPhone, do not perform per-chunk STT uploads; accumulate locally for one final upload at hang-up
+				if (isIPhone) {
+					audioChunks.push(blob);
 					return;
 				}
 				if (uploadQueue.length + inFlight > MAX_BACKLOG) {
@@ -337,51 +348,51 @@
 
 		const bufferLength = analyser.frequencyBinCount;
 
-const domainData = new Uint8Array(bufferLength);
-const timeDomainData = new Uint8Array(analyser.fftSize);
+		const domainData = new Uint8Array(bufferLength);
+		const timeDomainData = new Uint8Array(analyser.fftSize);
 
-let lastSoundTime = Date.now();
-hasStartedSpeaking = false;
+		let lastSoundTime = Date.now();
+		hasStartedSpeaking = false;
 
-console.log(' Sound detection started', lastSoundTime, hasStartedSpeaking);
+		console.log(' Sound detection started', lastSoundTime, hasStartedSpeaking);
 
-const detectSound = () => {
-const processFrame = () => {
-if (!mediaRecorder || !$showCallOverlay) {
-return;
-}
+		const detectSound = () => {
+			const processFrame = () => {
+				if (!mediaRecorder || !$showCallOverlay) {
+					return;
+				}
 
-if (assistantSpeaking && !($settings?.voiceInterruption ?? false)) {
-analyser.maxDecibels = 0;
-analyser.minDecibels = -1;
-} else {
-analyser.minDecibels = MIN_DECIBELS;
-analyser.maxDecibels = -30;
-}
+				if (assistantSpeaking && !($settings?.voiceInterruption ?? false)) {
+					analyser.maxDecibels = 0;
+					analyser.minDecibels = -1;
+				} else {
+					analyser.minDecibels = MIN_DECIBELS;
+					analyser.maxDecibels = -30;
+				}
 
-analyser.getByteTimeDomainData(timeDomainData);
-analyser.getByteFrequencyData(domainData);
+				analyser.getByteTimeDomainData(timeDomainData);
+				analyser.getByteFrequencyData(domainData);
 
-// Calculate RMS level from time domain data for UI
-rmsLevel = calculateRMS(timeDomainData);
+				// Calculate RMS level from time domain data for UI
+				rmsLevel = calculateRMS(timeDomainData);
 
-const hasSound = domainData.some((value) => value > 0);
-if (hasSound) {
-if (!hasStartedSpeaking) {
-hasStartedSpeaking = true;
-stopAllAudio();
-}
-lastSoundTime = Date.now();
-}
+				const hasSound = domainData.some((value) => value > 0);
+				if (hasSound) {
+					if (!hasStartedSpeaking) {
+						hasStartedSpeaking = true;
+						stopAllAudio();
+					}
+					lastSoundTime = Date.now();
+				}
 
-window.requestAnimationFrame(processFrame);
-};
+				window.requestAnimationFrame(processFrame);
+			};
 
-window.requestAnimationFrame(processFrame);
-};
+			window.requestAnimationFrame(processFrame);
+		};
 
-detectSound();
-};
+		detectSound();
+	};
 
 	const speakSpeechSynthesisHandler = (content) => {
 		if ($showCallOverlay) {
@@ -453,7 +464,7 @@ detectSound();
 		assistantSpeaking = false;
 		interrupted = true;
 
-		if (chatStreaming) {
+		if (chatStreaming && ($settings?.voiceInterruption ?? false)) {
 			stopResponse();
 		}
 
@@ -536,7 +547,7 @@ detectSound();
 			}
 			if (mediaRecorder) {
 				try {
-					if (mediaRecorder.state === 'recording') {
+					if (!isIPhone && mediaRecorder.state === 'recording') {
 						mediaRecorder.requestData();
 					}
 				} catch (e) {
@@ -548,11 +559,39 @@ detectSound();
 					console.log(e);
 				}
 			}
-			await waitForUploadsToFinish();
-			const finalTranscript = (transcriptBuffer.join(' ') || '').trim();
-			if (finalTranscript.length > 0) {
-				const _responses = await submitPrompt(finalTranscript, { _raw: true });
-				console.log(_responses);
+			if (isIPhone) {
+				// Give a brief moment for the last ondataavailable to fire
+				await new Promise((r) => setTimeout(r, 150));
+				try {
+					const type = mediaRecorder?.mimeType || 'audio/mp4';
+					let ext = 'mp4';
+					if (type.startsWith('audio/')) {
+						ext = type.split('/')[1].split(';')[0] || 'mp4';
+					}
+					const finalBlob = new Blob(audioChunks, { type });
+					const file = blobToFile(finalBlob, `call-${Date.now()}.${ext}`);
+					const res = await transcribeAudio(
+						localStorage.token,
+						file,
+						$settings?.audio?.stt?.language
+					).catch((error) => {
+						toast.error(`${error}`);
+						return null;
+					});
+					if (res && res.text) {
+						const _responses = await submitPrompt(res.text, { _raw: true });
+						console.log(_responses);
+					}
+				} finally {
+					audioChunks = [];
+				}
+			} else {
+				await waitForUploadsToFinish();
+				const finalTranscript = (transcriptBuffer.join(' ') || '').trim();
+				if (finalTranscript.length > 0) {
+					const _responses = await submitPrompt(finalTranscript, { _raw: true });
+					console.log(_responses);
+				}
 			}
 		} finally {
 			if (wakeLock) {
