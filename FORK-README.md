@@ -21,15 +21,15 @@ This fork adds a minimal patch to fix iOS Call Mode truncation (~14-20s audio cu
 Built automatically on push to `feature/call-mode-ios-heartbeat`:
 
 ```
-ghcr.io/<your-org>/open-webui:iosfix-main      # Latest
-ghcr.io/<your-org>/open-webui:iosfix-<sha>     # Pinned by commit
+ghcr.io/in-neil/open-webui:iosfix-main      # Latest
+ghcr.io/in-neil/open-webui:iosfix-<sha>     # Pinned by commit
 ```
 
 ## Railway Deployment
 
 Point your Railway service to:
 ```
-ghcr.io/<your-org>/open-webui:iosfix-main
+ghcr.io/in-neil/open-webui:iosfix-main
 ```
 
 Enable auto-deploy on new image push.
