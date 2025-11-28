@@ -1,0 +1,81 @@
+# Patch and Build - Maintains iOS heartbeat patch branch and builds Docker image
+# Triggers on push to main (after upstream sync) or direct push to patch branch
+name: Patch and Build
+
+on:
+  push:
+    branches:
+      - main
+      - feature/call-mode-ios-heartbeat
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  patch:
+    # Only run patch job when main is updated (not on direct patch branch pushes)
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Ensure patch branch exists and is updated
+        run: |
+          set -e
+          if git rev-parse --verify origin/feature/call-mode-ios-heartbeat >/dev/null 2>&1; then
+            git checkout feature/call-mode-ios-heartbeat
+            git merge --no-edit origin/main || {
+              echo "::error::Merge conflict detected! Manual resolution required."
+              exit 1
+            }
+          else
+            echo "Patch branch doesn't exist yet - will be created on first manual push"
+            exit 0
+          fi
+          git push origin feature/call-mode-ios-heartbeat
+
+  build:
+    runs-on: ubuntu-latest
+    # Run build when: patch job completes (main push) OR direct push to patch branch
+    needs: [patch]
+    if: always() && (needs.patch.result == 'success' || needs.patch.result == 'skipped')
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/call-mode-ios-heartbeat
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ secrets.GHCR_USERNAME }}
+          password: ${{ secrets.GHCR_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Extract short SHA
+        id: vars
+        run: echo "sha=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64
+          tags: |
+            ghcr.io/${{ github.repository }}:iosfix-main
+            ghcr.io/${{ github.repository }}:iosfix-${{ steps.vars.outputs.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

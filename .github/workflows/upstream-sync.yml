@@ -1,0 +1,39 @@
+# Upstream Sync - Keeps fork main branch in sync with open-webui/open-webui
+# Runs daily at 5:17 UTC and can be triggered manually
+name: Upstream Sync
+
+on:
+  schedule:
+    - cron: '17 5 * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Add upstream remote
+        run: |
+          git remote add upstream https://github.com/open-webui/open-webui.git || true
+          git fetch upstream
+
+      - name: Merge upstream/main -> main
+        run: |
+          git checkout main
+          git merge --no-edit upstream/main || echo "Merge conflict or nothing to merge"
+
+      - name: Push main
+        run: |
+          git push origin main

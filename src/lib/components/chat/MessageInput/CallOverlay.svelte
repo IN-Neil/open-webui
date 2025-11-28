@@ -41,6 +41,7 @@
 	let rmsLevel = 0;
 	let hasStartedSpeaking = false;
 	let mediaRecorder;
+	let mediaRecorderInterval = null;
 	let audioStream = null;
 	let audioChunks = [];
 
@@ -231,7 +232,18 @@
 					}
 				});
 			}
-			mediaRecorder = new MediaRecorder(audioStream);
+			let mrOptions = {};
+			try {
+				if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported) {
+					if (MediaRecorder.isTypeSupported('audio/mp4;codecs=mp4a.40.2')) {
+						mrOptions = { mimeType: 'audio/mp4;codecs=mp4a.40.2' };
+					} else if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+						mrOptions = { mimeType: 'audio/webm;codecs=opus' };
+					}
+				}
+			} catch (e) {}
+
+			mediaRecorder = new MediaRecorder(audioStream, mrOptions);
 
 			mediaRecorder.onstart = () => {
 				console.log('Recording started');
@@ -246,8 +258,20 @@
 
 			mediaRecorder.onstop = (e) => {
 				console.log('Recording stopped', audioStream, e);
+				if (mediaRecorderInterval) {
+					clearInterval(mediaRecorderInterval);
+					mediaRecorderInterval = null;
+				}
 				stopRecordingCallback();
 			};
+
+			mediaRecorderInterval = setInterval(() => {
+				if (mediaRecorder && mediaRecorder.state === 'recording') {
+					try {
+						mediaRecorder.requestData();
+					} catch (e) {}
+				}
+			}, 2000);
 
 			analyseAudio(audioStream);
 		}
