@@ -64,9 +64,11 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Extract short SHA
+      - name: Extract short SHA and lowercase repo
         id: vars
-        run: echo "sha=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
+        run: |
+          echo "sha=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
+          echo "repo=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
 
       - name: Build and push image
         uses: docker/build-push-action@v6
@@ -75,7 +77,7 @@ jobs:
           push: true
           platforms: linux/amd64
           tags: |
-            ghcr.io/${{ github.repository }}:iosfix-main
-            ghcr.io/${{ github.repository }}:iosfix-${{ steps.vars.outputs.sha }}
+            ghcr.io/${{ steps.vars.outputs.repo }}:iosfix-main
+            ghcr.io/${{ steps.vars.outputs.repo }}:iosfix-${{ steps.vars.outputs.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
