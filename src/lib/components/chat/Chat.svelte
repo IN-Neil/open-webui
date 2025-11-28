@@ -1546,8 +1546,29 @@
 	// Chat functions
 	//////////////////////////
 
+	// Helper to format timestamp for user messages
+	const formatMessageTimestamp = () => {
+		const now = new Date();
+		const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+		const dayName = days[now.getDay()];
+		const month = String(now.getMonth() + 1).padStart(2, '0');
+		const date = String(now.getDate()).padStart(2, '0');
+		const year = now.getFullYear();
+		let hours = now.getHours();
+		const minutes = String(now.getMinutes()).padStart(2, '0');
+		const ampm = hours >= 12 ? 'PM' : 'AM';
+		hours = hours % 12 || 12; // Convert to 12-hour format
+		const hoursStr = String(hours).padStart(2, '0');
+		return `[${dayName}, ${month}/${date}/${year} ${hoursStr}:${minutes} ${ampm}]`;
+	};
+
 	const submitPrompt = async (userPrompt, { _raw = false } = {}) => {
 		console.log('submitPrompt', userPrompt, $chatId);
+
+		// Append timestamp to user message for temporal awareness
+		if (userPrompt && userPrompt.trim() !== '') {
+			userPrompt = `${userPrompt} ${formatMessageTimestamp()}`;
+		}
 
 		const _selectedModels = selectedModels.map((modelId) =>
 			$models.map((m) => m.id).includes(modelId) ? modelId : ''
