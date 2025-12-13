@@ -145,6 +145,7 @@
 	export let regenerateResponse: Function;
 
 	export let addMessages: Function;
+	export let prepareRollingStart: Function = () => {};
 
 	export let isLastMessage = true;
 	export let readOnly = false;
@@ -1459,6 +1460,36 @@
 											</Tooltip>
 										{/if}
 									{/if}
+
+									<!-- Rolling Start / Context Compaction -->
+									<Tooltip content={$i18n.t('Summarize before this')} placement="bottom">
+										<button
+											type="button"
+											aria-label={$i18n.t('Summarize before this')}
+											class="{($settings?.highContrastMode ?? false)
+												? 'visible'
+												: 'invisible group-hover:visible'} p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-white hover:text-black transition"
+											on:click={() => {
+												prepareRollingStart(message.id);
+											}}
+										>
+											<svg
+												xmlns="http://www.w3.org/2000/svg"
+												fill="none"
+												viewBox="0 0 24 24"
+												stroke-width="2"
+												stroke="currentColor"
+												aria-hidden="true"
+												class="w-4 h-4"
+											>
+												<path
+													stroke-linecap="round"
+													stroke-linejoin="round"
+													d="M3 4.5h14.25M3 9h9.75M3 13.5h9.75m4.5-4.5v12m0 0l-3.75-3.75M17.25 21l3.75-3.75"
+												/>
+											</svg>
+										</button>
+									</Tooltip>
 
 									{#if isLastMessage}
 										{#each model?.actions ?? [] as action}

@@ -397,6 +397,14 @@
 			}, 100);
 		}
 	};
+
+	// Rolling Start / Context Compaction
+	const prepareRollingStart = async (messageId: string) => {
+		console.log('[RollingStart] Preparing summary for messages before:', messageId);
+		// For now, dispatch an event to the parent component (Chat.svelte)
+		// The actual summary generation will be implemented in a later phase
+		dispatch('prepareRollingStart', { messageId });
+	};
 </script>
 
 <div class={className}>
@@ -446,6 +454,7 @@
 								{continueResponse}
 								{mergeResponses}
 								{addMessages}
+								{prepareRollingStart}
 								{triggerScroll}
 								{readOnly}
 								{editCodeBlock}
