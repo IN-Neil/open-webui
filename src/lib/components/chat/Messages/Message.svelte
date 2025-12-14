@@ -54,22 +54,43 @@
 >
 	{#if history.rollingStartId === messageId}
 		<!-- Rolling Start Indicator -->
-		<div class="flex items-center justify-between gap-2 mb-2 px-2 py-1.5 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-lg text-sm">
-			<div class="flex items-center gap-2">
-				<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4 text-blue-500">
-					<path stroke-linecap="round" stroke-linejoin="round" d="M3 4.5h14.25M3 9h9.75M3 13.5h5.25m5.25 0H21m-3-3l3 3m0 0l-3 3" />
-				</svg>
-				<span class="text-blue-700 dark:text-blue-300 font-medium">Rolling Start</span>
-				<span class="text-blue-500 dark:text-blue-400 text-xs">— Context begins here</span>
+		<div class="mb-2 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-lg text-sm overflow-hidden">
+			<div class="flex items-center justify-between gap-2 px-2 py-1.5">
+				<div class="flex items-center gap-2">
+					<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4 text-blue-500">
+						<path stroke-linecap="round" stroke-linejoin="round" d="M3 4.5h14.25M3 9h9.75M3 13.5h5.25m5.25 0H21m-3-3l3 3m0 0l-3 3" />
+					</svg>
+					<span class="text-blue-700 dark:text-blue-300 font-medium">Rolling Start</span>
+					<span class="text-blue-500 dark:text-blue-400 text-xs">— Context begins here</span>
+				</div>
+				<div class="flex items-center gap-2">
+					{#if history.compactedSummary}
+						<button
+							class="text-xs text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 transition"
+							on:click={() => {
+								const el = document.getElementById('rolling-start-summary');
+								if (el) el.classList.toggle('hidden');
+							}}
+						>
+							View Summary
+						</button>
+					{/if}
+					<button
+						class="text-xs text-gray-500 hover:text-red-500 dark:text-gray-400 dark:hover:text-red-400 transition"
+						on:click={() => {
+							dispatch('clearRollingStart');
+						}}
+					>
+						Clear
+					</button>
+				</div>
 			</div>
-			<button
-				class="text-xs text-gray-500 hover:text-red-500 dark:text-gray-400 dark:hover:text-red-400 transition"
-				on:click={() => {
-					dispatch('clearRollingStart');
-				}}
-			>
-				Clear
-			</button>
+			{#if history.compactedSummary}
+				<div id="rolling-start-summary" class="hidden px-3 py-2 border-t border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-900/20">
+					<div class="text-xs text-gray-500 dark:text-gray-400 mb-1 font-medium">Compacted Summary:</div>
+					<div class="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap max-h-48 overflow-y-auto">{history.compactedSummary}</div>
+				</div>
+			{/if}
 		</div>
 	{/if}
 	{#if history.messages[messageId]}
