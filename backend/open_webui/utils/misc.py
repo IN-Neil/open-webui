@@ -68,13 +68,20 @@ def is_string_allowed(string: str, filter_list: Optional[list[str]] = None) -> b
     return True
 
 
-def get_message_list(messages_map, message_id):
+def get_message_list(
+    messages_map,
+    message_id,
+    rolling_start_id: Optional[str] = None,
+    compacted_summary: Optional[str] = None,
+):
     """
     Reconstructs a list of messages in order up to the specified message_id.
 
+    :param messages_map: Message history dict containing all messages
     :param message_id: ID of the message to reconstruct the chain
-    :param messages: Message history dict containing all messages
-    :return: List of ordered messages starting from the root to the given message
+    :param rolling_start_id: Optional ID to stop traversal at (context compaction boundary)
+    :param compacted_summary: Optional summary to prepend when rolling_start_id is set
+    :return: List of ordered messages starting from the root (or rolling start) to the given message
     """
 
     # Handle case where messages is None
@@ -94,8 +101,26 @@ def get_message_list(messages_map, message_id):
         message_list.insert(
             0, current_message
         )  # Insert the message at the beginning of the list
+
+        # Stop at rolling start boundary if set
+        if rolling_start_id and current_message.get("id") == rolling_start_id:
+            break
+
         parent_id = current_message.get("parentId")  # Use .get() for safety
         current_message = messages_map.get(parent_id) if parent_id else None
+
+    # Prepend compacted summary as a synthetic system message if provided
+    if rolling_start_id and compacted_summary:
+        summary_message = {
+            "id": "__compacted_summary__",
+            "role": "system",
+            "content": f"[Previous conversation summary]\n{compacted_summary}",
+            "parentId": None,
+            "childrenIds": [],
+            "timestamp": 0,  # Synthetic message, no real timestamp
+            "isCompactedSummary": True,  # Flag for UI/debugging
+        }
+        message_list.insert(0, summary_message)
 
     return message_list
 

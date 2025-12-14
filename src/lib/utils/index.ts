@@ -1160,7 +1160,22 @@ export const getWeekday = () => {
 	return weekdays[date.getDay()];
 };
 
-export const createMessagesList = (history, messageId) => {
+/**
+ * Recursively builds a list of messages from history, following parentId links.
+ * Supports rolling start (context compaction) - stops at rollingStartId and prepends summary.
+ *
+ * @param history - Chat history object containing messages map and optional rolling start data
+ * @param messageId - ID of the message to build the chain up to
+ * @param options - Optional config for rolling start behavior
+ * @returns Array of messages from root (or rolling start) to the specified message
+ */
+export const createMessagesList = (
+	history,
+	messageId,
+	options?: {
+		useRollingStart?: boolean; // Whether to apply rolling start (default: true if rollingStartId exists)
+	}
+) => {
 	if (messageId === null) {
 		return [];
 	}
@@ -1169,8 +1184,35 @@ export const createMessagesList = (history, messageId) => {
 	if (message === undefined) {
 		return [];
 	}
+
+	// Check for rolling start configuration
+	const rollingStartId = history.rollingStartId;
+	const compactedSummary = history.compactedSummary;
+	const useRollingStart = options?.useRollingStart ?? true;
+
+	// If this message IS the rolling start point, stop recursion here
+	if (useRollingStart && rollingStartId && message.id === rollingStartId) {
+		const result = [message];
+
+		// Prepend compacted summary as a synthetic system message if present
+		if (compactedSummary) {
+			const summaryMessage = {
+				id: '__compacted_summary__',
+				role: 'system',
+				content: `[Previous conversation summary]\n${compactedSummary}`,
+				parentId: null,
+				childrenIds: [],
+				timestamp: 0,
+				isCompactedSummary: true
+			};
+			return [summaryMessage, ...result];
+		}
+		return result;
+	}
+
+	// Continue recursion
 	if (message?.parentId) {
-		return [...createMessagesList(history, message.parentId), message];
+		return [...createMessagesList(history, message.parentId, options), message];
 	} else {
 		return [message];
 	}

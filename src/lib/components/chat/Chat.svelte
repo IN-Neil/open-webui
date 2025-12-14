@@ -2517,6 +2517,13 @@
 										topPadding={true}
 										bottomPadding={files.length > 0}
 										{onSelect}
+										on:prepareRollingStart={async (e) => {
+											const { messageId } = e.detail;
+											console.log('[Chat] Preparing rolling start for message:', messageId);
+											// TODO: Phase 3 - Generate summary and show draft UI
+											// For now, just log and show a toast
+											toast.info('Summary feature coming soon! Message ID: ' + messageId);
+										}}
 									/>
 								</div>
 							</div>
