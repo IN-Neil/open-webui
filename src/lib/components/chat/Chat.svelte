@@ -2538,9 +2538,10 @@
 											// Build list of messages before the target
 											const messagesBefore = createMessagesList(history, message.parentId);
 											
-											// Calculate token estimate (chars / 4)
+											// Calculate token estimate (chars / 4), excluding thinking blocks
 											const totalChars = messagesBefore.reduce((sum, m) => {
-												return sum + (m.content?.length || 0);
+												const cleanContent = removeAllDetails(m.content || '');
+												return sum + cleanContent.length;
 											}, 0);
 											const estimatedTokens = Math.round(totalChars / 4);
 											
