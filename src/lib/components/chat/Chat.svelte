@@ -96,6 +96,7 @@
 	import Tooltip from '../common/Tooltip.svelte';
 	import Sidebar from '../icons/Sidebar.svelte';
 	import Image from '../common/Image.svelte';
+	import Modal from '../common/Modal.svelte';
 
 	export let chatIdProp = '';
 
@@ -150,6 +151,12 @@
 		messages: {},
 		currentId: null
 	};
+
+	// Rolling Start Modal state
+	let showRollingStartModal = false;
+	let rollingStartTargetId: string | null = null;
+	let rollingStartTokenCount = 0;
+	let rollingStartSummary = '';
 
 	let taskIds = null;
 
@@ -2520,9 +2527,28 @@
 										on:prepareRollingStart={async (e) => {
 											const { messageId } = e.detail;
 											console.log('[Chat] Preparing rolling start for message:', messageId);
-											// TODO: Phase 3 - Generate summary and show draft UI
-											// For now, just log and show a toast
-											toast.info('Summary feature coming soon! Message ID: ' + messageId);
+											
+											// Get messages before this one (not including it)
+											const message = history.messages[messageId];
+											if (!message || !message.parentId) {
+												toast.warning('No messages before this one to summarize');
+												return;
+											}
+											
+											// Build list of messages before the target
+											const messagesBefore = createMessagesList(history, message.parentId);
+											
+											// Calculate token estimate (chars / 4)
+											const totalChars = messagesBefore.reduce((sum, m) => {
+												return sum + (m.content?.length || 0);
+											}, 0);
+											const estimatedTokens = Math.round(totalChars / 4);
+											
+											// Set modal state
+											rollingStartTargetId = messageId;
+											rollingStartTokenCount = estimatedTokens;
+											rollingStartSummary = '';
+											showRollingStartModal = true;
 										}}
 									/>
 								</div>
@@ -2658,6 +2684,86 @@
 		</div>
 	{/if}
 </div>
+
+<!-- Rolling Start Modal -->
+<Modal bind:show={showRollingStartModal} size="md">
+	<div class="p-6">
+		<h2 class="text-xl font-semibold mb-4 dark:text-white">Rolling Start</h2>
+		
+		<!-- Token Count Display -->
+		<div class="bg-gray-100 dark:bg-gray-800 rounded-lg p-4 mb-4">
+			<div class="text-3xl font-bold text-center dark:text-white">
+				~{rollingStartTokenCount.toLocaleString()}
+			</div>
+			<div class="text-sm text-gray-500 dark:text-gray-400 text-center mt-1">
+				tokens before this message
+			</div>
+		</div>
+
+		<!-- Copy Button -->
+		<button
+			class="w-full mb-4 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg flex items-center justify-center gap-2 transition"
+			on:click={async () => {
+				const message = history.messages[rollingStartTargetId];
+				if (!message?.parentId) return;
+				
+				const messagesBefore = createMessagesList(history, message.parentId);
+				const text = messagesBefore
+					.map(m => `${m.role?.toUpperCase() || 'UNKNOWN'}: ${m.content || ''}`)
+					.join('\n\n');
+				
+				await navigator.clipboard.writeText(text);
+				toast.success(`Copied ~${rollingStartTokenCount.toLocaleString()} tokens to clipboard`);
+			}}
+		>
+			<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-5 h-5">
+				<path stroke-linecap="round" stroke-linejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" />
+			</svg>
+			Copy Before This
+		</button>
+
+		<!-- Summary Text Area -->
+		<div class="mb-4">
+			<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+				Summary (paste or type)
+			</label>
+			<textarea
+				bind:value={rollingStartSummary}
+				class="w-full h-32 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+				placeholder="Paste your summary here, or copy the conversation above and summarize it externally..."
+			></textarea>
+		</div>
+
+		<!-- Action Buttons -->
+		<div class="flex gap-3">
+			<button
+				class="flex-1 px-4 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-800 dark:text-white rounded-lg transition"
+				on:click={() => {
+					showRollingStartModal = false;
+					rollingStartTargetId = null;
+					rollingStartSummary = '';
+				}}
+			>
+				Cancel
+			</button>
+			<button
+				class="flex-1 px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
+				disabled={!rollingStartSummary.trim()}
+				on:click={async () => {
+					// TODO: Phase 3.4 - Save to backend
+					toast.info('Apply Rolling Start - Coming soon!');
+					console.log('[RollingStart] Would apply:', {
+						targetId: rollingStartTargetId,
+						summary: rollingStartSummary,
+						tokensSaved: rollingStartTokenCount
+					});
+				}}
+			>
+				Apply Rolling Start
+			</button>
+		</div>
+	</div>
+</Modal>
 
 <style>
 	::-webkit-scrollbar {
