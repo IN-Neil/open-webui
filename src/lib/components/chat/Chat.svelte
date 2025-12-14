@@ -2751,13 +2751,36 @@
 				class="flex-1 px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
 				disabled={!rollingStartSummary.trim()}
 				on:click={async () => {
-					// TODO: Phase 3.4 - Save to backend
-					toast.info('Apply Rolling Start - Coming soon!');
-					console.log('[RollingStart] Would apply:', {
-						targetId: rollingStartTargetId,
-						summary: rollingStartSummary,
-						tokensSaved: rollingStartTokenCount
-					});
+					try {
+						// Update local history with rolling start fields
+						history.rollingStartId = rollingStartTargetId;
+						history.compactedSummary = rollingStartSummary.trim();
+						
+						// Save to backend
+						if ($chatId && !$temporaryChatEnabled) {
+							await updateChatById(localStorage.token, $chatId, {
+								history: history,
+								messages: createMessagesList(history, history.currentId)
+							});
+						}
+						
+						// Close modal and show success
+						showRollingStartModal = false;
+						toast.success(`Rolling start applied! ~${rollingStartTokenCount.toLocaleString()} tokens compacted.`);
+						
+						console.log('[RollingStart] Applied:', {
+							targetId: rollingStartTargetId,
+							summaryLength: rollingStartSummary.length,
+							tokensSaved: rollingStartTokenCount
+						});
+						
+						// Reset modal state
+						rollingStartTargetId = null;
+						rollingStartSummary = '';
+					} catch (err) {
+						console.error('[RollingStart] Error applying:', err);
+						toast.error('Failed to apply rolling start');
+					}
 				}}
 			>
 				Apply Rolling Start
