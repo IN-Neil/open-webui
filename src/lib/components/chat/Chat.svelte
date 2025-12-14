@@ -2551,6 +2551,26 @@
 											rollingStartSummary = '';
 											showRollingStartModal = true;
 										}}
+										on:clearRollingStart={async () => {
+											try {
+												// Clear rolling start from local history
+												history.rollingStartId = null;
+												history.compactedSummary = null;
+												
+												// Save to backend
+												if ($chatId && !$temporaryChatEnabled) {
+													await updateChatById(localStorage.token, $chatId, {
+														history: history,
+														messages: createMessagesList(history, history.currentId)
+													});
+												}
+												
+												toast.success('Rolling start cleared');
+											} catch (err) {
+												console.error('[RollingStart] Error clearing:', err);
+												toast.error('Failed to clear rolling start');
+											}
+										}}
 									/>
 								</div>
 							</div>

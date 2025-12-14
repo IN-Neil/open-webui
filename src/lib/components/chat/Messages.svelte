@@ -459,6 +459,9 @@
 								{readOnly}
 								{editCodeBlock}
 								{topPadding}
+								on:clearRollingStart={() => {
+									dispatch('clearRollingStart');
+								}}
 							/>
 						{/each}
 					</ul>
